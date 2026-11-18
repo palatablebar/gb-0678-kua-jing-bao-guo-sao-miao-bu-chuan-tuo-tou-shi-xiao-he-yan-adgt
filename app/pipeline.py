@@ -11,12 +11,14 @@ from app.modules.m4_paths.rules import evaluate as stage4
 from app.modules.m5_timeliness.rules import evaluate as stage5
 from app.modules.m6_compensation.rules import evaluate as stage6
 from app.modules.m7_archives.rules import evaluate as stage7
-STAGES=[stage1,stage2,stage3,stage4,stage5,stage6,stage7]
+from app.modules.m8_waivers.rules import evaluate as stage8
+from app import waiver_store
+STAGES=[stage1,stage2,stage3,stage4,stage5,stage6,stage7,stage8]
 def load_sample(name):
-    if name not in {"dirty.csv","clean.csv","legacy.csv"}: raise DomainError("BAD_SAMPLE","样例不存在",404)
+    if name not in {"dirty.csv","clean.csv","legacy.csv","outage.csv"}: raise DomainError("BAD_SAMPLE","样例不存在",404)
     return (ROOT/"sample_data"/name).read_bytes()
-def calculate(raw,params=None,stop=6):
-    params=params or {};started=time.monotonic();context={"parameters":params,"raw":raw,"quarantine":[]};stages=[];rows=[]
+def calculate(raw,params=None,stop=7):
+    params=params or {};started=time.monotonic();context={"parameters":params,"raw":raw,"quarantine":[],"announcements":waiver_store.active_announcements()};stages=[];rows=[]
     for index,stage in enumerate(STAGES[:stop+1]):
         result=stage(raw if index==0 else rows,context)
         result=scalar(result);rows=result["rows"]
@@ -25,14 +27,19 @@ def calculate(raw,params=None,stop=6):
         result["cumulative_quarantine"]=list(context["quarantine"])
         context[MODULES[index][0]]=result
         stages.append(result)
-    return {"run_id":digest(raw,params)[:20],"stages":stages,"manifest":manifest(raw,params,started),"parameters":params}
+    return {"run_id":digest(raw,params)[:20],"stages":stages,"manifest":manifest(raw,params,started),"parameters":params,"announcements":context["announcements"]}
 def execute(raw,params=None):
-    result=calculate(raw,params);return store.save(result["run_id"],result)
+    result=calculate(raw,params);saved=store.save(result["run_id"],result)
+    # 免责裁定按 run_id 幂等落盘：同输入重跑复用同批次，绝不重复减免
+    waiver_store.save_verdicts(result["run_id"],result["stages"][-1])
+    return saved
 def stage_preview(index,payload):
     if "rows" in payload and index>0:
         if not isinstance(payload["rows"],list) or any(not isinstance(row,dict) for row in payload["rows"]): raise DomainError("BAD_ROWS","记录需要对象列表")
         if not isinstance(payload.get("context",{}),dict): raise DomainError("BAD_CONTEXT","上下文需要对象")
-        return scalar(STAGES[index](payload["rows"],payload.get("context",{"parameters":{},"quarantine":[]})))
+        context=payload.get("context",{"parameters":{},"quarantine":[]})
+        context.setdefault("announcements",waiver_store.active_announcements())
+        return scalar(STAGES[index](payload["rows"],context))
     raw=payload.get("csv")
     raw=raw.encode() if isinstance(raw,str) else load_sample(payload.get("sample","dirty.csv"))
     return calculate(raw,payload.get("parameters",{}),index)["stages"][-1]

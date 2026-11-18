@@ -1,0 +1,69 @@
+{% extends 'base.html' %}{% block panels %}
+<div class="grid">
+  <section class="panel wide">
+    <div class="panel__head"><h2>停运免责裁定 · 唯一结论</h2><span>逐包证据交集 · 不整段免责</span></div>
+    <div class="panel__body">
+      <p class="rule">起点 = max(公告服务停止, 该包裹末次正常扫描)；终点 = min(公告恢复, 包裹时钟)。窗口内无扫描轨迹的包裹不予免责；撤销/被替换公告不参与。</p>
+      <div class="table-scroll">
+        <table class="scans">
+          <thead><tr>{% for key in columns %}<th>{{labels.get(key,key)}}</th>{% endfor %}</tr></thead>
+          <tbody id="scan-rows">
+          {% for row in rows %}
+            <tr>
+              {% for key in columns %}
+                {% if key=='matched_announcements' %}<td title="{{row.waiver_reason}}">{{row.matched_announcements|join(', ') or '—'}}</td>
+                {% elif key=='waiver_decision' %}<td><span class="badge {{'ok' if row.waiver_decision=='准予免责' else 'no'}}">{{row.waiver_decision}}</span></td>
+                {% else %}<td title="{{row.get(key,'')}}">{{row.get(key,'—')}}</td>{% endif %}
+              {% endfor %}
+            </tr>
+            {% if row.waiver_pieces %}
+            <tr class="piece-row"><td colspan="{{columns|length}}">
+              {% for p in row.waiver_pieces %}
+              <div class="piece">依据 <b>{{p.announcement_id}}</b>（{{p.carrier}}，发布 {{p.published_at[5:16]}}）｜免责区间 {{p.basis_start[5:16]}} → {{p.basis_end[5:16]}}｜停表 {{p.relief_hours}}h｜证据扫描 {{p.proof_scans|join(', ')}}<br><small>{{p.proof_rule}}</small></div>
+              {% endfor %}
+            </td></tr>
+            {% endif %}
+          {% else %}<tr><td class="empty">选择扫描批后重建。</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel__head"><h2>免责指标</h2><span>{{index+1}} / 8</span></div>
+      <div class="panel__body">
+        {% for key,value in stage.metrics.items() %}<div class="metric"><span>{{labels.get(key,key)}}</span><b>{{value}}</b></div>{% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel__head"><h2>公告台账（只追加）</h2><span id="ann-count"></span></div>
+      <div class="panel__body" id="ann-list"><div class="empty">加载中…</div></div>
+    </section>
+  </div>
+
+  <section class="panel wide">
+    <div class="panel__head"><h2>公告登记 / 晚到修订 / 撤销</h2><span>失败保留旧版，原始公告与扫描不删除</span></div>
+    <div class="panel__body controls" id="ann-form">
+      <input id="ann-id" placeholder="公告号 FM-XX-01" aria-label="公告号">
+      <input id="ann-carrier" placeholder="承运商" aria-label="承运商">
+      <input id="ann-dest" placeholder="目的地 JP/US/DE" aria-label="目的地">
+      <input id="ann-published" placeholder="发布时刻 2026-11-09T06:00:00Z" aria-label="发布时刻">
+      <input id="ann-stop" placeholder="停运时刻" aria-label="停运时刻">
+      <input id="ann-resume" placeholder="恢复时刻" aria-label="恢复时刻">
+      <input id="ann-reason" placeholder="停运原因" aria-label="停运原因">
+      <button class="primary" id="ann-register">登记公告</button>
+      <span id="ann-message" role="status"></span>
+      <div class="controls" style="width:100%">
+        <input id="ann-recheck-id" placeholder="修订/撤销公告号" aria-label="目标公告号">
+        <input id="ann-recheck-version" type="number" placeholder="当前版本" aria-label="当前版本" style="max-width:110px">
+        <button id="ann-revoke">撤销（保留旧版）</button>
+        <button id="ann-recheck">按上方表单内容修订</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script>window.WAIVER_ENDPOINT='/api/announcements';</script>
+<script src="/static/waiver.js"></script>
+{% endblock %}

@@ -13,6 +13,7 @@
 | M5 时效计算 | 查看并运行时效计算 | `/api/timeliness` | `app/modules/m5_timeliness/rules.py` | `tests/test_m5.py` |
 | M6 赔付对账 | 查看并运行赔付对账 | `/api/compensation` | `app/modules/m6_compensation/rules.py` | `tests/test_m6.py` |
 | M7 批次归档 | 查看并运行批次归档 | `/api/archives` | `app/modules/m7_archives/rules.py` | `tests/test_m7.py` |
+| M8 停运免责 | 公告登记/修订/撤销与逐包免责裁定 | `/api/waivers`、`/api/announcements` | `app/modules/m8_waivers/rules.py`、`app/waiver_store.py` | `tests/test_m8.py` |
 
 ## 陷阱登记
 
@@ -32,6 +33,18 @@
 | TRAP-12 | DST自然日 | 固定24小时 | 按当地午夜切片 | `app/modules/m5_timeliness/rules.py` | `tests/test_m5.py::test_dst_actual_elapsed_hours` |
 | TRAP-13 | 迟到妥投补传 | 按上传时间赔付 | 发生时间重建 | `app/modules/m4_paths/rules.py` | `tests/test_m4.py::test_late_upload_event_time_decides` |
 | TRAP-23 | 假日端点 | 误算全天 | 当地日半开切段 | `app/modules/m5_timeliness/rules.py` | `tests/test_m5.py::test_holiday_full_day_stops` |
+| TRAP-31 | 整段免责误伤 | 按公告窗口全员免责 | 起点=max(停运, 末次窗口扫描)，无窗口扫描驳回 | `app/modules/m8_waivers/rules.py` | `tests/test_m8.py::test_window_start_uses_last_scan_not_published_or_stop` |
+| TRAP-32 | 无轨迹包裹被免责 | 承运商主张整段停表 | 停运窗口内无该包裹扫描则不予免责 | `app/modules/m8_waivers/rules.py` | `tests/test_m8.py::test_no_scan_in_window_denies_even_when_announcement_matches` |
+| TRAP-33 | 公告晚到 | 按发布时刻起算 | 按实际停运/恢复时刻，发布仅作依据展示 | `app/modules/m8_waivers/rules.py` | `tests/test_m8.py::test_late_announcement_window_uses_stop_not_published` |
+| TRAP-34 | 公告撤销 | 删除公告或仍参与免责 | 只置 revoked 保留原文，裁定排除 | `app/waiver_store.py` | `tests/test_m8.py::test_revoke_marks_status_but_preserves_payload` |
+| TRAP-35 | 修订覆盖旧版 | 原地 UPDATE | 追加新版本，旧版置 superseded 永不删除 | `app/waiver_store.py` | `tests/test_m8.py::test_recheck_replace_appends_and_keeps_old_version` |
+| TRAP-36 | 重跑重复减免 | 每次重跑再减一次 | run_id 幂等，waiver_verdicts INSERT OR IGNORE | `app/waiver_store.py` | `tests/test_m8.py::test_rerun_idempotent_no_double_relief` |
+
+## 停运免责裁决（M8）
+
+承运商要求按公告整段免除时效，客服担心无轨迹证明的包裹被一并免责。裁决不采用公告发布时刻，也不无条件采用服务停止时刻：每个包裹的免责区间起点取 `max(公告服务停止时刻, 该包裹末次窗口内扫描时刻)`，终点取 `min(公告恢复时刻, 包裹时钟终点)`；停运窗口 `[stop_at, resume_at)` 内没有任何该包裹扫描轨迹的，即使目的地被公告覆盖也不予免责。窗口内扫描证据来自 M4 路径挂载的 `_events` 原始事件，原始扫描全程不删除不改写。
+
+停表小时复用 M5 的目的地工作日时钟（节假日/周末停表），先得减免工时再回算超时与赔付，输出 `original_*` 与 `adjusted_*` 两套数字；对外唯一时效结论 `sla` 与赔付 `expected` 以调整后为准，原结论保留可追溯，赔付变化 `comp_change` 随归档 CSV 的 waiver 证据行封存。公告表 `announcements` 只追加：修订产生 version+1 且旧版置 superseded，撤销仅置 revoked；乐观锁失效返回 409 且不产生新版本。撤销/被替换公告不进入裁定上下文。
 
 ## 对账规则
 

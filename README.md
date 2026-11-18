@@ -20,10 +20,13 @@ docker compose exec -T app pytest -q
 - 5. 时效计算：`/timeliness`，`/api/timeliness`。
 - 6. 赔付对账：`/compensation`，`/api/compensation`。
 - 7. 批次归档：`/archives`，`/api/archives`。
+- 8. 停运免责：`/waivers`，`/api/waivers`；公告台账 `/api/announcements`。
 
 ## 核心规则
 
 以事件发生时刻重建路径，补传不改变既有妥投时间；承诺时钟按目的地节假日停表。
+
+停运免责不按公告整段免除：逐包取 `max(公告停运时刻, 该包裹末次窗口内扫描时刻)` 为免责起点、`min(公告恢复时刻, 包裹时钟)` 为终点；停运窗口内无该包裹扫描轨迹的包裹不予免责。公告晚到仍按实际停运时刻起算，发布时刻仅作依据。公告只追加版本，修订追加新版（旧版 superseded），撤销仅置 revoked 且原文保留；乐观锁失效返回409。重跑按 run_id 幂等，不重复减免。页面展示免责依据、区间与赔付变化，证据随归档 CSV 的 waiver 行封存。
 
 ## 演示
 
